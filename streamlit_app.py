@@ -8,7 +8,7 @@ from pathlib import Path
 import pandas as pd
 import streamlit as st
 
-from juliany82.ledger import ForecastLedger
+from juliany82.ledger import DEFAULT_SUPABASE_URL, ForecastLedger
 from juliany82.context_data import (
     combine_context_sources,
     fetch_cftc_positioning,
@@ -26,9 +26,25 @@ from juliany82.providers import fetch_nasdaq_ung
 from juliany82.rolling import generate_rolling_forecasts
 from juliany82.scorecards import build_scorecards
 
+
+def make_ledger() -> ForecastLedger:
+    """Use Supabase when its server-side secret is configured; otherwise use local files."""
+    try:
+        config = st.secrets.get("supabase", {})
+        key = config.get("service_role_key") or st.secrets.get("SUPABASE_SERVICE_ROLE_KEY", "")
+        url = config.get("url", DEFAULT_SUPABASE_URL)
+    except Exception:
+        key, url = "", DEFAULT_SUPABASE_URL
+    return ForecastLedger(supabase_url=url, supabase_key=key)
+
 st.set_page_config(page_title="UNG Storage & Supply Research", page_icon="NG", layout="wide")
 st.title("UNG Storage & Supply Research")
 st.caption("Daily and five-session experimental forecasts from two complementary models.")
+ledger = make_ledger()
+if ledger.use_supabase:
+    st.caption("Forecast history: Supabase connected")
+else:
+    st.warning("Forecast history is using local files and may not persist on hosted Streamlit. Add the Supabase service role key to Streamlit secrets to enable shared storage.")
 
 run_report_path = Path("data/ledger/latest-run.json")
 persisted_report = {}
@@ -105,7 +121,7 @@ if st.button("Scan", type="primary", use_container_width=True):
                     status="NOT_CONFIGURED",
                 ),
             ])
-            ledger = ForecastLedger()
+            ledger = make_ledger()
             scored = ledger.score_matured(fetched.frame)
             generated = generate_rolling_forecasts(
                 fetched.frame, context=combine_context_sources(context_frames),
@@ -222,26 +238,42 @@ if forecasts:
             st.subheader(f"Forecast range graphic — {title}")
             st.line_chart(chart_rows, use_container_width=True)
             st.caption("The area between Forecast low and Forecast high is the expected price range; Forecast close is the middle estimate.")
-    cards = build_scorecards(ForecastLedger().outcomes())
-    st.subheader("Individual model scorecards")
-    if cards:
-        scorecard_columns = [
-            "model_name", "horizon", "matured_forecasts", "range_coverage",
-            "mean_abs_low_error", "mean_abs_high_error", "average_range_width", "status",
-        ]
-        st.dataframe(
-            [{key: row.get(key) for key in scorecard_columns} for row in cards],
-            use_container_width=True,
-            hide_index=True,
-        )
-        st.caption("Range coverage = percentage of sessions where the actual low and high stayed inside the forecast range.")
-        st.caption("Lower low/high errors are better. Narrower ranges are better only when coverage remains high.")
-        scorecard_frame = pd.DataFrame(cards)
-        st.subheader("Range accuracy at a glance")
-        chart_frame = scorecard_frame.pivot(index="model_name", columns="horizon", values="range_coverage")
-        chart_frame.columns = [f"{int(value)}d" for value in chart_frame.columns]
-        st.bar_chart(chart_frame, y_label="Range coverage (1.0 = 100%)")
-    else:
-        st.info("No matured forecasts yet; scorecards will populate as target sessions complete.")
+cards = build_scorecards(ledger.outcomes())
+st.subheader("Individual model scorecards")
+if cards:
+    scorecard_columns = [
+        "model_name", "horizon", "matured_forecasts", "mean_abs_close_error",
+        "mean_abs_low_error", "mean_abs_high_error", "range_coverage",
+        "average_range_width", "status",
+    ]
+    st.dataframe(
+        [{key: row.get(key) for key in scorecard_columns} for row in cards],
+        use_container_width=True,
+        hide_index=True,
+    )
+    st.caption("Range coverage = percentage of sessions where the actual low and high stayed inside the forecast range.")
+    st.caption("Close/low/high errors are mean absolute price errors. Lower is better. Narrower ranges are useful only when coverage remains high.")
+    scorecard_frame = pd.DataFrame(cards)
+    st.subheader("Range accuracy at a glance")
+    chart_frame = scorecard_frame.pivot(index="model_name", columns="horizon", values="range_coverage")
+    chart_frame.columns = [f"{int(value)}d" for value in chart_frame.columns]
+    st.bar_chart(chart_frame, y_label="Range coverage (1.0 = 100%)")
+else:
+    st.info("No matured forecasts yet; scorecards will populate as target sessions complete.")
+
+outcomes = ledger.outcomes()
+if outcomes:
+    st.subheader("Latest forecast vs actual")
+    comparisons = pd.DataFrame(outcomes).sort_values("scored_at", ascending=False).head(20)
+    comparison_columns = [
+        "target_session", "model_name", "horizon",
+        "predicted_low", "actual_low", "low_error",
+        "predicted_close", "actual_close", "close_error",
+        "predicted_high", "actual_high", "high_error",
+    ]
+    comparisons = comparisons[[column for column in comparison_columns if column in comparisons]]
+    st.dataframe(comparisons, use_container_width=True, hide_index=True)
+    st.caption("Forecast errors are predicted price minus actual price. A row is added once when its target session has a completed Nasdaq bar.")
+
 st.subheader("Planned output")
 st.write("CatBoost captures nonlinear feature interactions. Bayesian dynamic selection estimates time-varying coefficients and updates each input's inclusion probability as new observations arrive. Compare both using their separate walk-forward scorecards; neither is assumed superior before out-of-sample evidence.")

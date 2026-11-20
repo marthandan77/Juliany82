@@ -44,6 +44,18 @@ python collect_storage.py
 
 Forecast and outcome ledgers are stored under `data/ledger/`. Do not commit raw snapshots, local ledgers, or credentials.
 
+### Durable free-tier ledger on Supabase
+
+This repository can use the configured Supabase project for shared, persistent forecast and outcome records. Run `supabase/schema.sql` once in the Supabase SQL Editor. In Streamlit Community Cloud, add this under **App settings → Secrets**:
+
+```toml
+[supabase]
+url = "https://majosloydqiwmsesgikg.supabase.co"
+service_role_key = "YOUR_SERVER_SIDE_SERVICE_ROLE_KEY"
+```
+
+For scheduled runs, set `SUPABASE_SERVICE_ROLE_KEY` as a GitHub Actions secret; `SUPABASE_URL` defaults to the project URL above. Keep the service-role key secret and only use it in server-side code. If the key is absent, the app deliberately falls back to local JSONL and shows a warning because hosted local files are not durable. The Supabase Free plan currently provides 500 MB of database storage, may pause projects after a week of low activity, and does not include automatic backups; export the ledger periodically and remain within free-plan limits.
+
 ## Planned data work
 
 1. Compare the storage features against price-only candidates using chronological out-of-sample forecasts.
