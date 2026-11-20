@@ -40,7 +40,7 @@ def make_ledger() -> ForecastLedger:
 
 st.set_page_config(page_title="UNG Range Desk", page_icon="NG", layout="wide")
 
-@st.cache_data(ttl=900, show_spinner=False)
+@st.cache_data(ttl=3600, show_spinner=False)
 def cached_news():
     return fetch_ung_news()
 
@@ -402,7 +402,7 @@ if outcomes:
     st.caption(f"Showing the latest {len(comparisons)} scored forecasts. All scored vintages remain in the ledger. Errors are forecast minus actual.")
 
 st.subheader("UNG & natural-gas headlines")
-st.caption("Recent links from GDELT · informational context only; headlines are not model inputs or a sentiment signal.")
+st.caption("Recent news links · informational context only; headlines are not model inputs or a sentiment signal.")
 if st.button("Refresh headlines"):
     cached_news.clear()
 try:
@@ -410,6 +410,8 @@ try:
     if news.empty:
         st.info("No matching headlines were returned for the past seven days.")
     else:
+        feed_label = str(news.iloc[0].get("feed", "GDELT"))
+        st.caption(f"Feed: {feed_label} · cached for up to one hour")
         st.dataframe(
             news.rename(columns={"seen_utc": "Seen (UTC)", "headline": "Headline", "source": "Source", "language": "Language", "article": "Article"}),
             use_container_width=True,
