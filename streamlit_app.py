@@ -285,38 +285,19 @@ if bars is not None and not bars.empty:
     st.markdown(
         "**Simple meaning:** contango is when next month's gas futures cost more than the front month. "
         "That curve shape can create a headwind for UNG over time as it rolls contracts; it does not predict tomorrow's direction. "
-        "The quotes below are TradingView visual context and are not model inputs."
+        "The public curve below is visual context only and is not used by the forecast models."
     )
-    tv_config = {
-        "colorTheme": "dark",
-        "dateRange": "1D",
-        "isTransparent": True,
-        "showSymbolLogo": False,
-        "showChart": False,
-        "showFloatingTooltip": False,
-        "width": "100%",
-        "height": 220,
-        "locale": "en",
-        "tabs": [{
-            "title": "Henry Hub futures",
-            "symbols": [
-                {"s": "NYMEX:NG1!", "d": "Front month"},
-                {"s": "NYMEX:NG2!", "d": "Second month"},
-            ],
-        }],
-    }
-    st.components.v1.html(
-        """<div class="tradingview-widget-container" style="height:220px;width:100%">
-  <div class="tradingview-widget-container__widget"></div>
-  <div class="tradingview-widget-copyright"><a href="https://www.tradingview.com/symbols/NYMEX-NG1%21/forward-curve/" target="_blank" rel="noopener nofollow">Open full Henry Hub forward curve on TradingView</a></div>
-  <script type="text/javascript" src="https://s3.tradingview.com/external-embedding/embed-widget-market-overview.js" async>
-  """ + json.dumps(tv_config) + """
-  </script>
-</div>""",
-        height=260,
-        scrolling=False,
+    st.components.v1.iframe(
+        "https://www.terravonenergy.com/strip-chart",
+        height=760,
+        scrolling=True,
     )
-    st.caption("Compare front month with second month: if the second-month quote is higher, the near curve is in contango; if lower, it is in backwardation. TradingView may delay quotes. This visual is not ingested into CatBoost or Bayesian forecasts.")
+    st.caption(
+        "Terravon describes this as a public Henry Hub forward-curve tracker using CME settlement data, "
+        "updated each Friday and on the first trading day of the month. It is settlement-based, not a live quote, "
+        "and is not ingested into CatBoost or Bayesian forecasts."
+    )
+    st.markdown("[Open the Terravon strip tracker in a new tab](https://www.terravonenergy.com/strip-chart)")
 
     st.subheader("Useful additions for the desk")
     u1, u2, u3, u4 = st.columns(4)
