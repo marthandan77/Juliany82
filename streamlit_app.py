@@ -44,14 +44,8 @@ if run_report_path.exists():
         st.warning("The latest run report exists but could not be read.")
 
 st.info(
-    "Forecasts are experimental research outputs. Ridge, gradient boosting, random forest, and "
-    "extra trees are comparison candidates; none is designated the best model."
-)
-selected_models = st.multiselect(
-    "Models to run",
-    ["ridge", "hist_gradient_boosting", "random_forest", "extra_trees"],
-    default=["ridge", "hist_gradient_boosting", "random_forest", "extra_trees"],
-    help="Scan runs all four models by default. Select fewer to make a scan faster.",
+    "HistGradientBoosting is the current experimental model. Its forecasts are research outputs, "
+    "not trade recommendations."
 )
 if st.button("Scan", type="primary", use_container_width=True):
     with st.spinner("Scanning configured feeds, scoring completed forecasts, and updating models..."):
@@ -114,7 +108,7 @@ if st.button("Scan", type="primary", use_container_width=True):
             scored = ledger.score_matured(fetched.frame)
             generated = generate_rolling_forecasts(
                 fetched.frame, context=combine_context_sources(context_frames),
-                model_names=selected_models, ledger=ledger
+                model_names=("hist_gradient_boosting",), ledger=ledger
             )
             report = {
                 "run_at": datetime.now(timezone.utc).isoformat(),
@@ -219,10 +213,10 @@ if forecasts:
             "expected_close": row["expected_close"],
             "predicted_high": row["predicted_high"],
         }
-        for row in forecasts if row["model_name"] == "ridge"
+        for row in forecasts if row["model_name"] == "hist_gradient_boosting"
     }
     if chart_rows:
-        st.subheader("Forecast range graphic — Ridge candidate")
+        st.subheader("Forecast range graphic — HistGradientBoosting")
         st.line_chart(chart_rows, use_container_width=True)
         st.caption("The area between Forecast low and Forecast high is the expected price range; Forecast close is the middle estimate.")
     cards = build_scorecards(ForecastLedger().outcomes())
@@ -248,6 +242,6 @@ if forecasts:
         st.info("No matured forecasts yet; scorecards will populate as target sessions complete.")
 st.subheader("Planned output")
 st.write(
-    "Each run keeps candidate model forecasts separate. No winner or ensemble is selected until "
-    "we agree on the evaluation method and see enough matured out-of-sample results."
+    "HistGradientBoosting is the active model. We will only add challengers as separate candidates "
+    "after their out-of-sample evaluation plan is agreed."
 )

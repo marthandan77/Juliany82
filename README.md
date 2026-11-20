@@ -4,7 +4,7 @@ Research application for daily UNG price features and rolling one-to-five-sessio
 
 ## Model status
 
-Model choice is intentionally open. Ridge, histogram gradient boosting, random forest, and extra trees are retained as separate challenger candidates from the earlier project. The application reports each candidate separately and does not select a winner or create an adaptive ensemble. We should choose the final model only after agreeing on the targets, walk-forward evaluation, and scoring criteria.
+HistGradientBoosting is the sole model in the project and remains experimental. Other inherited model implementations and selectors have been removed. CatBoost and a pretrained time-series model are being considered as future challengers; neither is included or selected yet.
 
 ## Current data
 
@@ -26,7 +26,7 @@ python -m pip install -e .
 streamlit run streamlit_app.py
 ```
 
-Set `EIA_API_KEY` in the local environment for EIA's API. The key is optional; without it, the collector uses EIA's public workbook. Set `JULIANY_MODELS` to a comma-separated list of candidate model names to run a subset.
+Set `EIA_API_KEY` in the local environment for EIA's API. The key is optional; without it, the collector uses EIA's public workbook.
 
 Run the scheduled-style collector with:
 
@@ -49,4 +49,4 @@ Forecast and outcome ledgers are stored under `data/ledger/`. Do not commit raw 
 1. Compare the storage features against price-only candidates using chronological out-of-sample forecasts.
 2. Add a pre-release storage expectation series only if a reliable free historical source is identified and archived point in time.
 3. Evaluate a small set of relevant pipeline EBB notices, storing notice text and posting/effective times before attempting to convert notices into numerical supply-loss estimates.
-4. Decide on the final ML method only after reviewing benchmark performance, calibration, and forecast stability.
+4. Add a challenger only after agreeing on evaluation and reviewing walk-forward performance, calibration, and forecast stability.

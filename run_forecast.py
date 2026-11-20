@@ -1,6 +1,5 @@
 ﻿"""Scheduled entry point for one validated rolling forecast run."""
 import json
-import os
 from datetime import datetime, timezone
 from pathlib import Path
 from juliany82.ledger import ForecastLedger
@@ -79,11 +78,7 @@ def main() -> None:
     ])
     ledger = ForecastLedger()
     features_context = combine_context_sources(context)
-    configured_models = tuple(
-        name.strip() for name in os.getenv(
-            "JULIANY_MODELS", "ridge,hist_gradient_boosting,random_forest,extra_trees"
-        ).split(",") if name.strip()
-    )
+    configured_models = ("hist_gradient_boosting",)
     # Score target sessions that completed after previous candidate forecasts.
     scored = ledger.score_matured(fetched.frame)
     rows = generate_rolling_forecasts(

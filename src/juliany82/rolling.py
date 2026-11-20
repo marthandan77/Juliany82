@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import hashlib
-import os
 from datetime import datetime, timezone
 from typing import Iterable
 
@@ -27,8 +26,7 @@ def generate_rolling_forecasts(
     """Generate one independent forecast per model and future session."""
     ung = ung.sort_index()
     if model_names is None:
-        configured = os.getenv("JULIANY_MODELS", "ridge,hist_gradient_boosting,random_forest,extra_trees")
-        model_names = tuple(name.strip() for name in configured.split(",") if name.strip())
+        model_names = ("hist_gradient_boosting",)
     model_names = tuple(dict.fromkeys(model_names))
     features = build_features(ung, henry_hub, context)
     latest_session = ung.index[-1]

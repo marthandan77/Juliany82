@@ -6,11 +6,9 @@ from dataclasses import dataclass
 import math
 import numpy as np
 import pandas as pd
-from sklearn.ensemble import ExtraTreesRegressor, HistGradientBoostingRegressor, RandomForestRegressor
+from sklearn.ensemble import HistGradientBoostingRegressor
 from sklearn.impute import SimpleImputer
-from sklearn.linear_model import Ridge
 from sklearn.pipeline import Pipeline
-from sklearn.preprocessing import StandardScaler
 
 
 @dataclass(frozen=True, slots=True)
@@ -26,33 +24,14 @@ class ModelForecast:
 
 
 def _model(name: str, quantile: float | None = None) -> Pipeline:
-    if name == "ridge":
-        estimator = Ridge(alpha=10.0)
-        scale = True
-    elif name == "hist_gradient_boosting":
-        estimator = HistGradientBoostingRegressor(
-            loss="quantile" if quantile is not None else "squared_error",
-            quantile=quantile, max_iter=180, learning_rate=0.04,
-            max_leaf_nodes=15, l2_regularization=2.0, random_state=42,
-        )
-        scale = False
-    elif name == "random_forest":
-        estimator = RandomForestRegressor(
-            n_estimators=80, min_samples_leaf=5, max_features=0.8,
-            random_state=42, n_jobs=1,
-        )
-        scale = False
-    elif name == "extra_trees":
-        estimator = ExtraTreesRegressor(
-            n_estimators=80, min_samples_leaf=5, max_features=0.8,
-            random_state=42, n_jobs=1,
-        )
-        scale = False
-    else:
-        raise ValueError(f"unknown model: {name}")
+    if name != "hist_gradient_boosting":
+        raise ValueError(f"unknown model: {name}; only hist_gradient_boosting is configured")
+    estimator = HistGradientBoostingRegressor(
+        loss="quantile" if quantile is not None else "squared_error",
+        quantile=quantile, max_iter=180, learning_rate=0.04,
+        max_leaf_nodes=15, l2_regularization=2.0, random_state=42,
+    )
     steps: list[tuple[str, object]] = [("imputer", SimpleImputer(strategy="median", add_indicator=True))]
-    if scale:
-        steps.append(("scale", StandardScaler()))
     steps.append(("model", estimator))
     return Pipeline(steps)
 
