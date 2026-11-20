@@ -281,20 +281,41 @@ if bars is not None and not bars.empty:
         st.caption("Research levels, not an execution instruction. UNG can gap beyond either level; check spreads, fees and position limits.")
 
     st.subheader("Contango & futures-curve effect")
-    st.warning(
-        "Current futures curve: not connected. This desk has Henry Hub spot data, but spot is not the same as NYMEX futures by delivery month. "
-        "EIA's historical futures series currently stops at April 5, 2024, so it cannot supply today's contango reading."
-    )
-    curve1, curve2, curve3 = st.columns(3)
-    curve1.metric("Front-month future", "No current quote")
-    curve2.metric("Next-month future", "No current quote")
-    curve3.metric("Contango spread", "Not calculated")
     st.markdown(
         "**Simple meaning:** contango is when next month's gas futures cost more than the front month. "
-        "UNG rolls futures contracts, so contango can create a headwind over time; it does not tell us whether UNG will rise or fall tomorrow. "
-        "[Open CME's delayed Henry Hub quotes](https://www.cmegroup.com/markets/energy/natural-gas/natural-gas.quotes.html)."
+        "That curve shape can create a headwind for UNG over time as it rolls contracts; it does not predict tomorrow's direction. "
+        "The quotes below are TradingView visual context and are not model inputs."
     )
-    st.caption("Once a current futures feed is connected, spread % = (next-month price − front-month price) ÷ front-month price × 100. Positive means contango; negative means backwardation. CME quotes are delayed at least 10 minutes and are shown as a reference feed.")
+    tv_config = {
+        "colorTheme": "dark",
+        "dateRange": "1D",
+        "isTransparent": True,
+        "showSymbolLogo": False,
+        "showChart": False,
+        "showFloatingTooltip": False,
+        "width": "100%",
+        "height": 220,
+        "locale": "en",
+        "tabs": [{
+            "title": "Henry Hub futures",
+            "symbols": [
+                {"s": "NYMEX:NG1!", "d": "Front month"},
+                {"s": "NYMEX:NG2!", "d": "Second month"},
+            ],
+        }],
+    }
+    st.components.v1.html(
+        """<div class="tradingview-widget-container" style="height:220px;width:100%">
+  <div class="tradingview-widget-container__widget"></div>
+  <div class="tradingview-widget-copyright"><a href="https://www.tradingview.com/symbols/NYMEX-NG1%21/forward-curve/" target="_blank" rel="noopener nofollow">Open full Henry Hub forward curve on TradingView</a></div>
+  <script type="text/javascript" src="https://s3.tradingview.com/external-embedding/embed-widget-market-overview.js" async>
+  """ + json.dumps(tv_config) + """
+  </script>
+</div>""",
+        height=260,
+        scrolling=False,
+    )
+    st.caption("Compare front month with second month: if the second-month quote is higher, the near curve is in contango; if lower, it is in backwardation. TradingView may delay quotes. This visual is not ingested into CatBoost or Bayesian forecasts.")
 
     st.subheader("Useful additions for the desk")
     with st.expander("Range confidence — how often has this model's range held?"):
