@@ -223,8 +223,12 @@ hh_snapshot = st.session_state.get("henry_hub")
 cards = build_scorecards(ledger.outcomes())
 if bars is not None and not bars.empty:
     last = bars.iloc[-1]
-    m1, m2, m3 = st.columns(3)
+    m1, m2 = st.columns(2)
     m1.metric("UNG last close", f"${float(last['close']):.2f}", str(bars.index[-1].date()))
+    selected_model = None
+    selected_horizon = None
+    selected = None
+    matching = None
     yz = None
     yz5 = yz20 = None
     if "open" in bars:
@@ -248,15 +252,12 @@ if bars is not None and not bars.empty:
             help="Yang–Zhang needs open, high, low and close prices over the recent sessions.",
         )
     recent = bars.tail(20)
+    range_low = range_high = range_position = None
     if len(recent) >= 2 and float(recent["high"].max()) > float(recent["low"].min()):
         range_low = float(recent["low"].min())
         range_high = float(recent["high"].max())
         range_position = (float(last["close"]) - range_low) / (range_high - range_low)
         range_position = min(1.0, max(0.0, range_position))
-        position_text = "Near the lower end" if range_position < 0.33 else "Near the upper end" if range_position > 0.67 else "Near the middle"
-        m3.metric("Price in 20-day range", f"{range_position:.0%}", position_text)
-    else:
-        m3.metric("Price in 20-day range", "Warming up", "Need 2+ sessions")
     if forecasts:
         current_origin = max(row.get("issued_at", "") for row in forecasts)
         current = [row for row in forecasts if row.get("issued_at") == current_origin]
@@ -318,21 +319,38 @@ if bars is not None and not bars.empty:
     st.caption("Compare front month with second month: if the second-month quote is higher, the near curve is in contango; if lower, it is in backwardation. TradingView may delay quotes. This visual is not ingested into CatBoost or Bayesian forecasts.")
 
     st.subheader("Useful additions for the desk")
-    with st.expander("Range confidence — how often has this model's range held?"):
-        st.write("The scorecard compares old forecast ranges with the actual low and high over the same number of sessions. It reports past coverage only after 30 forecasts mature. That percentage describes historical results; it is not the chance this new range will hold.")
-    with st.expander("Price location — is UNG near its recent low or high?"):
-        st.write(f"The card above locates today's close between the lowest low and highest high of the last 20 sessions ({f'${range_low:.2f}–${range_high:.2f}' if 'range_low' in locals() else 'range not available'}). Near the bottom can help frame a buy zone; it does not guarantee a bounce.")
-    with st.expander("Volatility trend — are price swings growing or shrinking?"):
-        if pd.notna(yz5) and pd.notna(yz20) and float(yz20) > 0:
-            vol_ratio = float(yz5) / float(yz20)
-            vol_description = "Recent swings are larger than the 20-session pace" if vol_ratio > 1.05 else "Recent swings are smaller than the 20-session pace" if vol_ratio < 0.95 else "Recent swings are close to the 20-session pace"
-            st.write(f"The recent 5-session Yang–Zhang volatility is {vol_ratio:.2f}× the 20-session reading. {vol_description}. This helps describe possible range width, not direction.")
+    u1, u2, u3, u4 = st.columns(4)
+    if range_position is not None:
+        position_label = "Lower part" if range_position < 0.33 else "Upper part" if range_position > 0.67 else "Middle part"
+        u1.metric("20-day price location", f"{range_position:.0%}", f"{position_label} · ${range_low:.2f}–${range_high:.2f}")
+    else:
+        u1.metric("20-day price location", "Warming up", "Need more daily bars")
+    if pd.notna(yz5) and pd.notna(yz20) and float(yz20) > 0:
+        vol_ratio = float(yz5) / float(yz20)
+        vol_label = "Swings growing" if vol_ratio > 1.05 else "Swings easing" if vol_ratio < 0.95 else "About steady"
+        u2.metric("Volatility trend", vol_label, f"5-day pace is {vol_ratio:.2f}× 20-day")
+    else:
+        u2.metric("Volatility trend", "Warming up", "Need more OHLC history")
+    if matching:
+        matured = int(matching.get("matured_forecasts", 0))
+        if matured >= 30:
+            u3.metric("Past range coverage", f"{float(matching['range_coverage']):.0%}", f"{matured} forecasts · {selected_model} · {selected_horizon}d")
         else:
-            st.write("This reading needs enough open, high, low and close history to calculate both volatility windows.")
-    with st.expander("Next useful model — forecast range width separately"):
-        st.write("A HAR-style volatility model can combine short-, medium- and longer-term volatility to estimate whether upcoming price ranges may widen or narrow. It forecasts move size, not direction. Yang–Zhang inputs are available; a separate walk-forward-tested HAR forecast is not yet on this page.")
-    with st.expander("Which level gets touched first?"):
-        st.write("This would estimate whether the buy level or sell level is reached first. Daily bars cannot tell the order if both levels trade during the same session. Intraday price history is needed to train and score this fairly.")
+            u3.metric("Past range coverage", "Building", f"{matured}/30 forecasts · {selected_model} · {selected_horizon}d")
+    else:
+        u3.metric("Past range coverage", "Awaiting forecasts", "Select a model and horizon")
+    if selected is not None:
+        low_gap = float(selected["predicted_low"]) / float(last["close"]) - 1
+        high_gap = float(selected["predicted_high"]) / float(last["close"]) - 1
+        u4.metric("Forecast low / high vs close", f"{low_gap:+.1%} / {high_gap:+.1%}", "Low side / high side")
+    else:
+        u4.metric("Forecast range from close", "Unavailable", "Run a scan first")
+    d1, d2, d3, d4 = st.columns(4)
+    d1.caption("Price location compares today's close with the lowest low and highest high from the past 20 sessions. It describes position, not a reversal signal.")
+    d2.caption("Volatility trend compares recent 5-session movement with the 20-session pace. It describes move size, not direction.")
+    d3.caption("Coverage is the share of completed forecast ranges that contained the actual range. It is a historical score, not a probability for today's forecast.")
+    d4.caption("Shows how far the forecast low and high sit from the latest close for the selected model and horizon.")
+    st.info("First-touch order is not estimated: daily bars can show both levels traded in one session, but cannot tell which was reached first. That needs intraday data.")
 feed_rows = quality.get("data_feeds") if quality else persisted_report.get("data_feeds", [])
 st.subheader("Market input availability")
 if feed_rows:
