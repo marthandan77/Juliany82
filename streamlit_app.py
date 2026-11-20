@@ -234,7 +234,20 @@ if bars is not None and not bars.empty:
         from juliany82.features import build_features
         yz_frame = build_features(bars, hh_snapshot.history if hh_snapshot else None)
         yz = yz_frame.iloc[-1].get("yang_zhang_vol_10")
-    m3.metric("Yang–Zhang vol · 10d", f"{yz:.1%}" if pd.notna(yz) else "Warming up", "Annualized · range context")
+    if pd.notna(yz):
+        daily_move_pct = float(yz) / (252 ** 0.5)
+        daily_move_dollars = float(last["close"]) * daily_move_pct
+        m3.metric(
+            "Recent volatility · 10 days",
+            f"{float(yz):.1%} per year",
+            f"About ±${daily_move_dollars:.2f} daily move; either way",
+            help="Yang–Zhang estimates how much UNG has been moving, including overnight gaps. The percentage is annualized. It describes move size, not whether price will rise or fall.",
+        )
+    else:
+        m3.metric(
+            "Recent volatility · 10 days", "Warming up", "Need more daily price history",
+            help="Yang–Zhang needs open, high, low and close prices over the recent sessions.",
+        )
     m4.metric("Forecast rows", str(len(forecasts)) if forecasts else "Awaiting scan", "CatBoost + Bayesian")
     if forecasts:
         current_origin = max(row.get("issued_at", "") for row in forecasts)
