@@ -46,8 +46,28 @@ def cached_news():
 
 st.markdown("""<style>
 .stApp {background:#0b1118;color:#e6edf3}
-[data-testid="stMetric"] {background:#111b25;border:1px solid #263746;padding:12px;border-radius:5px}
-[data-testid="stMetricLabel"] {color:#9fb3c8}
+[data-testid="stMetric"] {
+  background:#142230 !important;
+  border:1px solid #526a80 !important;
+  border-radius:8px !important;
+  padding:14px 16px !important;
+  min-height:112px;
+  box-shadow:0 2px 8px rgba(0,0,0,.28);
+}
+[data-testid="stMetricLabel"], [data-testid="stMetricLabel"] *,
+[data-testid="stMetric"] label, [data-testid="stMetric"] label * {
+  color:#c4d4e2 !important;
+  opacity:1 !important;
+}
+[data-testid="stMetricValue"], [data-testid="stMetricValue"] * {
+  color:#ffffff !important;
+  opacity:1 !important;
+  font-weight:700 !important;
+}
+[data-testid="stMetricDelta"], [data-testid="stMetricDelta"] * {
+  color:#b6c8d8 !important;
+  opacity:1 !important;
+}
 div[data-testid="stDataFrame"] {border:1px solid #263746}
 h1,h2,h3 {color:#f4b942}
 </style>""", unsafe_allow_html=True)
