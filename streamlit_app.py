@@ -285,19 +285,18 @@ if bars is not None and not bars.empty:
     st.markdown(
         "**Simple meaning:** contango is when next month's gas futures cost more than the front month. "
         "That curve shape can create a headwind for UNG over time as it rolls contracts; it does not predict tomorrow's direction. "
-        "The public curve below is visual context only and is not used by the forecast models."
+        "Use CME's Henry Hub contract quotes below to inspect the curve. This is reference context only and is not used by the forecast models."
     )
-    st.components.v1.iframe(
-        "https://www.terravonenergy.com/strip-chart",
-        height=760,
-        scrolling=True,
+    st.info(
+        "CME does not allow its market-data pages to be framed inside another site, so open the official quotes page directly. "
+        "Compare the front-month contract with later delivery months: higher later-month prices indicate contango; lower prices indicate backwardation."
     )
-    st.caption(
-        "Terravon describes this as a public Henry Hub forward-curve tracker using CME settlement data, "
-        "updated each Friday and on the first trading day of the month. It is settlement-based, not a live quote, "
-        "and is not ingested into CatBoost or Bayesian forecasts."
+    st.link_button(
+        "Open CME Henry Hub futures quotes",
+        "https://www.cmegroup.com/markets/energy/natural-gas/natural-gas.quotes.html",
+        use_container_width=True,
     )
-    st.markdown("[Open the Terravon strip tracker in a new tab](https://www.terravonenergy.com/strip-chart)")
+    st.caption("CME quotes are for reference only. This desk does not copy or ingest CME market data.")
 
     st.subheader("Useful additions for the desk")
     u1, u2, u3, u4 = st.columns(4)
