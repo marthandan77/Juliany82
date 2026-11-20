@@ -28,7 +28,7 @@ from juliany82.scorecards import build_scorecards
 
 st.set_page_config(page_title="UNG Storage & Supply Research", page_icon="NG", layout="wide")
 st.title("UNG Storage & Supply Research")
-st.caption("Daily and five-session experimental forecasts. Model selection remains open.")
+st.caption("Daily and five-session experimental forecasts from two complementary models.")
 
 run_report_path = Path("data/ledger/latest-run.json")
 persisted_report = {}
@@ -44,7 +44,8 @@ if run_report_path.exists():
         st.warning("The latest run report exists but could not be read.")
 
 st.info(
-    "HistGradientBoosting is the current experimental model. Its forecasts are research outputs, "
+    "CatBoost and Bayesian dynamic regression with variable selection are experimental models. "
+    "Their forecasts are research outputs, "
     "not trade recommendations."
 )
 if st.button("Scan", type="primary", use_container_width=True):
@@ -108,7 +109,7 @@ if st.button("Scan", type="primary", use_container_width=True):
             scored = ledger.score_matured(fetched.frame)
             generated = generate_rolling_forecasts(
                 fetched.frame, context=combine_context_sources(context_frames),
-                model_names=("hist_gradient_boosting",), ledger=ledger
+                model_names=("catboost", "bayesian_dynamic_selection"), ledger=ledger
             )
             report = {
                 "run_at": datetime.now(timezone.utc).isoformat(),
@@ -207,18 +208,20 @@ if forecasts:
     for column in ("Forecast low", "Forecast close", "Forecast high"):
         forecast_table[column] = forecast_table[column].round(2)
     st.dataframe(forecast_table, use_container_width=True, hide_index=True)
-    chart_rows = {
-        row["target_session"]: {
-            "predicted_low": row["predicted_low"],
-            "expected_close": row["expected_close"],
-            "predicted_high": row["predicted_high"],
+    for model_name, title in (("catboost", "CatBoost"),
+                              ("bayesian_dynamic_selection", "Bayesian dynamic selection")):
+        chart_rows = {
+            row["target_session"]: {
+                "predicted_low": row["predicted_low"],
+                "expected_close": row["expected_close"],
+                "predicted_high": row["predicted_high"],
+            }
+            for row in forecasts if row["model_name"] == model_name
         }
-        for row in forecasts if row["model_name"] == "hist_gradient_boosting"
-    }
-    if chart_rows:
-        st.subheader("Forecast range graphic — HistGradientBoosting")
-        st.line_chart(chart_rows, use_container_width=True)
-        st.caption("The area between Forecast low and Forecast high is the expected price range; Forecast close is the middle estimate.")
+        if chart_rows:
+            st.subheader(f"Forecast range graphic — {title}")
+            st.line_chart(chart_rows, use_container_width=True)
+            st.caption("The area between Forecast low and Forecast high is the expected price range; Forecast close is the middle estimate.")
     cards = build_scorecards(ForecastLedger().outcomes())
     st.subheader("Individual model scorecards")
     if cards:
@@ -241,7 +244,4 @@ if forecasts:
     else:
         st.info("No matured forecasts yet; scorecards will populate as target sessions complete.")
 st.subheader("Planned output")
-st.write(
-    "HistGradientBoosting is the active model. We will only add challengers as separate candidates "
-    "after their out-of-sample evaluation plan is agreed."
-)
+st.write("CatBoost captures nonlinear feature interactions. Bayesian dynamic selection estimates time-varying coefficients and updates each input's inclusion probability as new observations arrive. Compare both using their separate walk-forward scorecards; neither is assumed superior before out-of-sample evidence.")

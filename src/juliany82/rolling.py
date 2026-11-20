@@ -11,6 +11,7 @@ from .features import build_features, build_forward_targets
 from .calibration import calibrate_range
 from .ledger import ForecastLedger
 from .models import fit_individual_forecast
+from .models import MODEL_NAMES
 from .sessions import next_sessions
 
 
@@ -26,7 +27,7 @@ def generate_rolling_forecasts(
     """Generate one independent forecast per model and future session."""
     ung = ung.sort_index()
     if model_names is None:
-        model_names = ("hist_gradient_boosting",)
+        model_names = MODEL_NAMES
     model_names = tuple(dict.fromkeys(model_names))
     features = build_features(ung, henry_hub, context)
     latest_session = ung.index[-1]

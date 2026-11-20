@@ -1,14 +1,16 @@
-﻿"""Individual forecasting models and scorecard primitives."""
+"""Forecast models: CatBoost and Bayesian dynamic regression with selection."""
 from __future__ import annotations
 
 from dataclasses import dataclass
-
 import math
+
 import numpy as np
 import pandas as pd
-from sklearn.ensemble import HistGradientBoostingRegressor
-from sklearn.impute import SimpleImputer
-from sklearn.pipeline import Pipeline
+
+
+CATBOOST = "catboost"
+BAYESIAN_DYNAMIC = "bayesian_dynamic_selection"
+MODEL_NAMES = (CATBOOST, BAYESIAN_DYNAMIC)
 
 
 @dataclass(frozen=True, slots=True)
@@ -23,44 +25,135 @@ class ModelForecast:
     uncertainty: float
 
 
-def _model(name: str, quantile: float | None = None) -> Pipeline:
-    if name != "hist_gradient_boosting":
-        raise ValueError(f"unknown model: {name}; only hist_gradient_boosting is configured")
-    estimator = HistGradientBoostingRegressor(
-        loss="quantile" if quantile is not None else "squared_error",
-        quantile=quantile, max_iter=180, learning_rate=0.04,
-        max_leaf_nodes=15, l2_regularization=2.0, random_state=42,
+def _clean_features(train: pd.DataFrame, predict: pd.DataFrame) -> tuple[np.ndarray, np.ndarray]:
+    """Median-impute and standardize using training rows only."""
+    values = train.replace([np.inf, -np.inf], np.nan).to_numpy(dtype=float)
+    latest = predict.replace([np.inf, -np.inf], np.nan).to_numpy(dtype=float)
+    medians = np.nanmedian(values, axis=0)
+    medians = np.where(np.isfinite(medians), medians, 0.0)
+    values = np.where(np.isfinite(values), values, medians)
+    latest = np.where(np.isfinite(latest), latest, medians)
+    means = values.mean(axis=0)
+    scales = values.std(axis=0)
+    scales = np.where(scales > 1e-12, scales, 1.0)
+    return (values - means) / scales, (latest - means) / scales
+
+
+def _catboost_predict(train_x: pd.DataFrame, train_y: np.ndarray, predict_x: pd.DataFrame,
+                      loss: str) -> tuple[np.ndarray, np.ndarray]:
+    from catboost import CatBoostRegressor
+
+    model = CatBoostRegressor(
+        loss_function=loss, iterations=350, depth=5, learning_rate=0.035,
+        l2_leaf_reg=5.0, random_seed=42, verbose=False, allow_writing_files=False,
+        thread_count=4,
     )
-    steps: list[tuple[str, object]] = [("imputer", SimpleImputer(strategy="median", add_indicator=True))]
-    steps.append(("model", estimator))
-    return Pipeline(steps)
+    model.fit(train_x, train_y)
+    return model.predict(predict_x), model.predict(train_x)
+
+
+def _bayesian_dynamic_predict(
+    train_x: pd.DataFrame, train_y: np.ndarray, predict_x: pd.DataFrame,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Diagonal spike-and-slab dynamic linear model with online inclusion odds.
+
+    Coefficients follow a random walk. Each feature has an inclusion probability
+    updated from its one-step predictive Bayes factor at each training date.
+    This is an approximate, scalable Bayesian variable-selection filter, not MCMC.
+    """
+    x, future = _clean_features(train_x, predict_x)
+    y = np.asarray(train_y, dtype=float)
+    usable = np.isfinite(y)
+    x, y = x[usable], y[usable]
+    if not len(y):
+        raise ValueError("Bayesian dynamic regression has no finite target rows")
+
+    p = x.shape[1]
+    variance = max(float(np.var(y)), 1e-8)
+    observation_var = max(variance * 0.25, 1e-8)
+    beta = np.zeros(p)
+    beta_var = np.full(p, max(variance / max(p, 1), 1e-6))
+    inclusion = np.full(p, 0.5)
+    intercept = 0.0
+    intercept_var = max(variance, 1e-6)
+    residuals = []
+
+    for row, target in zip(x, y):
+        predicted = intercept + float(np.dot(inclusion * beta, row))
+        residuals.append(target - predicted)
+
+        # Dynamic intercept update.
+        intercept_var += variance * 0.002
+        intercept_gain = intercept_var / (intercept_var + observation_var)
+        intercept += intercept_gain * (target - predicted)
+        intercept_var *= 1.0 - intercept_gain
+
+        for j in range(p):
+            if abs(row[j]) < 1e-10:
+                beta_var[j] += variance * 0.01
+                continue
+            partial = target - intercept - float(np.dot((inclusion * beta), row)) + inclusion[j] * beta[j] * row[j]
+            prior_var = beta_var[j] + variance * 0.01
+            spike_var = observation_var
+            slab_var = observation_var + row[j] * row[j] * prior_var
+            log_bf = 0.5 * (math.log(spike_var / slab_var)) + 0.5 * (
+                partial * partial / spike_var - (partial - row[j] * beta[j]) ** 2 / slab_var
+            )
+            # Temper Bayes factors and retain a small amount of prior adaptation.
+            prior_probability = float(np.clip(0.995 * inclusion[j] + 0.005 * 0.5, 1e-4, 1 - 1e-4))
+            log_odds = math.log(prior_probability / (1 - prior_probability)) + float(np.clip(log_bf, -8, 8))
+            inclusion[j] = 1.0 / (1.0 + math.exp(-float(np.clip(log_odds, -30, 30))))
+
+            gain = prior_var * row[j] / slab_var
+            beta[j] += gain * (partial - row[j] * beta[j])
+            beta_var[j] = max((1.0 - gain * row[j]) * prior_var, 1e-10)
+
+    forecast = intercept + future @ (inclusion * beta)
+    return forecast, np.asarray(residuals, dtype=float)
+
+
+def _predict(name: str, x: pd.DataFrame, y: np.ndarray, latest: pd.DataFrame,
+             key: str) -> tuple[float, np.ndarray]:
+    if name == CATBOOST:
+        loss = "RMSE" if key == "close" else f"Quantile:alpha={0.1 if key == 'low' else 0.9}"
+        predictions, fitted = _catboost_predict(x, y, latest, loss)
+        return float(predictions[0]), np.asarray(y, dtype=float) - fitted
+    if name == BAYESIAN_DYNAMIC:
+        predictions, residuals = _bayesian_dynamic_predict(x, y, latest)
+        return float(predictions[0]), residuals
+    raise ValueError(f"unknown model: {name}; choose from {', '.join(MODEL_NAMES)}")
 
 
 def fit_individual_forecast(
     model_name: str, features: pd.DataFrame, targets: pd.DataFrame,
     *, reference_close: float, target_session: str, horizon: int, min_rows: int = 100,
 ) -> ModelForecast:
-    joined = features.join(targets).dropna(subset=["forward_low_return", "forward_return", "forward_high_return"])
+    if model_name not in MODEL_NAMES:
+        raise ValueError(f"unknown model: {model_name}; choose from {', '.join(MODEL_NAMES)}")
+    joined = features.join(targets).dropna(
+        subset=["forward_low_return", "forward_return", "forward_high_return"]
+    )
     if len(joined) < min_rows:
         raise ValueError(f"{model_name}: need {min_rows} rows, have {len(joined)}")
     usable_columns = [column for column in features.columns if joined[column].notna().any()]
     x = joined[usable_columns]
     latest = features.iloc[[-1]][usable_columns]
-    models = {}
-    close_residuals = None
-    for key, target in (("low", "forward_low_return"), ("close", "forward_return"), ("high", "forward_high_return")):
-        model = _model(model_name, 0.1 if key == "low" else 0.9 if key == "high" else None)
-        model.fit(x, joined[target])
-        models[key] = float(model.predict(latest)[0])
+    forecasts = {}
+    residuals = None
+    for key, target in (("low", "forward_low_return"), ("close", "forward_return"),
+                        ("high", "forward_high_return")):
+        forecasts[key], target_residuals = _predict(
+            model_name, x, joined[target].to_numpy(dtype=float), latest, key
+        )
         if key == "close":
-            close_residuals = joined[target].to_numpy(dtype=float) - model.predict(x)
-    low = max(0.01, reference_close * (1 + models["low"]))
-    close = max(0.01, reference_close * (1 + models["close"]))
-    high = max(0.01, reference_close * (1 + models["high"]))
+            residuals = target_residuals
+
+    low = max(0.01, reference_close * (1 + forecasts["low"]))
+    close = max(0.01, reference_close * (1 + forecasts["close"]))
+    high = max(0.01, reference_close * (1 + forecasts["high"]))
     low, high = min(low, high), max(low, high)
-    residual_scale = max(float(np.nanstd(close_residuals)) if close_residuals is not None else 0.0, 1e-6)
-    predicted_return = models["close"]
-    probability_up = 0.5 * (1.0 + math.erf(predicted_return / (residual_scale * math.sqrt(2.0))))
+    residual_scale = max(float(np.nanstd(residuals)) if residuals is not None else 0.0, 1e-6)
+    probability_up = 0.5 * (1.0 + math.erf(forecasts["close"] / (residual_scale * math.sqrt(2.0))))
     probability_up = float(np.clip(probability_up, 0.01, 0.99))
     uncertainty = float(np.clip(residual_scale + (high - low) / max(close, 1e-6), 0.0, 1.0))
     return ModelForecast(model_name, horizon, target_session, low, close, high, probability_up, uncertainty)
@@ -87,6 +180,8 @@ def walk_forward_evaluate(
     horizon: int, min_train_rows: int = 100, step: int = 5,
 ) -> list[dict[str, float | str | int | bool]]:
     """Evaluate an individual model using expanding-window, future-blind forecasts."""
+    if model_name not in MODEL_NAMES:
+        raise ValueError(f"unknown model: {model_name}; choose from {', '.join(MODEL_NAMES)}")
     joined = features.join(targets)
     rows: list[dict[str, float | str | int | bool]] = []
     for index in range(min_train_rows, len(joined), step):
@@ -98,8 +193,6 @@ def walk_forward_evaluate(
         )
         if test.empty:
             continue
-        # Fit only on data strictly before the forecast block. The target rows at
-        # the boundary are naturally excluded if their future horizon is incomplete.
         train = train_features.join(train_targets).dropna(
             subset=["forward_low_return", "forward_return", "forward_high_return"]
         )
@@ -107,21 +200,17 @@ def walk_forward_evaluate(
             continue
         usable = [column for column in features.columns if train[column].notna().any()]
         x = train[usable]
-        models = {}
-        for key, target in (("low", "forward_low_return"), ("close", "forward_return"), ("high", "forward_high_return")):
-            model = _model(model_name, 0.1 if key == "low" else 0.9 if key == "high" else None)
-            model.fit(x, train[target])
-            models[key] = model
-        predictions = {key: model.predict(features.loc[test.index, usable]) for key, model in models.items()}
+        test_x = features.loc[test.index, usable]
+        predictions, _ = _predict(model_name, x, train["forward_return"].to_numpy(dtype=float), test_x, "close")
         for position, timestamp in enumerate(test.index):
-            reference = float(joined.loc[timestamp, "forward_return"])
+            actual = float(joined.loc[timestamp, "forward_return"])
             rows.append({
                 "model_name": model_name,
                 "horizon": horizon,
                 "target_session": timestamp.isoformat(),
-                "predicted_return": float(predictions["close"][position]),
-                "actual_return": reference,
-                "absolute_error": abs(float(predictions["close"][position]) - reference),
-                "direction_correct": bool((predictions["close"][position] > 0) == (reference > 0)),
+                "predicted_return": float(predictions[position]),
+                "actual_return": actual,
+                "absolute_error": abs(float(predictions[position]) - actual),
+                "direction_correct": bool((predictions[position] > 0) == (actual > 0)),
             })
     return rows

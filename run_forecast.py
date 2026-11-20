@@ -78,7 +78,7 @@ def main() -> None:
     ])
     ledger = ForecastLedger()
     features_context = combine_context_sources(context)
-    configured_models = ("hist_gradient_boosting",)
+    configured_models = ("catboost", "bayesian_dynamic_selection")
     # Score target sessions that completed after previous candidate forecasts.
     scored = ledger.score_matured(fetched.frame)
     rows = generate_rolling_forecasts(

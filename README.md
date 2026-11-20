@@ -4,7 +4,7 @@ Research application for daily UNG price features and rolling one-to-five-sessio
 
 ## Model status
 
-HistGradientBoosting is the sole model in the project and remains experimental. Other inherited model implementations and selectors have been removed. CatBoost and a pretrained time-series model are being considered as future challengers; neither is included or selected yet.
+The experimental forecast set is CatBoost plus Bayesian dynamic regression with dynamic variable selection. CatBoost fits nonlinear boosted trees. The Bayesian model uses a sequential spike-and-slab coefficient filter: coefficients can drift over time and feature inclusion probabilities update with each training observation. It is a scalable approximate Bayesian filter, not a full MCMC posterior. Neither model is presumed superior; compare the separate chronological scorecards before relying on either.
 
 ## Current data
 
@@ -49,4 +49,9 @@ Forecast and outcome ledgers are stored under `data/ledger/`. Do not commit raw 
 1. Compare the storage features against price-only candidates using chronological out-of-sample forecasts.
 2. Add a pre-release storage expectation series only if a reliable free historical source is identified and archived point in time.
 3. Evaluate a small set of relevant pipeline EBB notices, storing notice text and posting/effective times before attempting to convert notices into numerical supply-loss estimates.
-4. Add a challenger only after agreeing on evaluation and reviewing walk-forward performance, calibration, and forecast stability.
+4. Compare CatBoost and Bayesian dynamic selection on the same chronological splits, reviewing forecast error, calibration, inclusion stability, and sensitivity to feature availability.
+
+## Models
+
+- **CatBoost:** independent regressors estimate the expected return and 10th/90th percentile return ranges.
+- **Bayesian dynamic selection:** time-varying regression coefficients are updated sequentially; per-feature inclusion probabilities adapt from predictive evidence. The current implementation is an approximate diagonal spike-and-slab filter, so correlated inputs can share or obscure importance. Review inclusion stability and chronological forecast performance before interpreting feature weights.
