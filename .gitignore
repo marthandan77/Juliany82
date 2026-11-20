@@ -1,0 +1,10 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.venv/
+data/raw/
+data/normalized/
+data/ledger/*.jsonl
+data/ledger/latest-run.json
+.streamlit/secrets.toml
