@@ -121,8 +121,14 @@ if st.button("Scan", type="primary", use_container_width=True):
                     ))
             try:
                 henry_hub_snapshot = fetch_eia_henry_hub_spot()
-                data_feeds.append(describe_henry_hub_feed(henry_hub_snapshot))
+                henry_hub_history = getattr(henry_hub_snapshot, "history", None)
+                henry_feed = describe_henry_hub_feed(henry_hub_snapshot)
+                if henry_hub_history is None:
+                    henry_feed["role"] = "Reference only; history unavailable in loaded module"
+                    henry_feed["note"] = "Spot quote is available, but the loaded EIA parser does not expose history. Restart or refresh the app deployment to enable Henry Hub model features."
+                data_feeds.append(henry_feed)
             except Exception as henry_hub_exc:
+                henry_hub_history = None
                 data_feeds.append(unavailable_feed(
                     "EIA Henry Hub spot", f"Fetch or validation failed ({type(henry_hub_exc).__name__})."
                 ))
@@ -140,7 +146,7 @@ if st.button("Scan", type="primary", use_container_width=True):
             scored = ledger.score_matured(fetched.frame)
             generated = generate_rolling_forecasts(
                 fetched.frame,
-                henry_hub=henry_hub_snapshot.history if henry_hub_snapshot else None,
+                henry_hub=henry_hub_history,
                 context=combine_context_sources(context_frames),
                 model_names=("catboost", "bayesian_dynamic_selection"), ledger=ledger
             )
