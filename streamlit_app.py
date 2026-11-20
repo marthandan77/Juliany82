@@ -285,18 +285,18 @@ if bars is not None and not bars.empty:
     st.markdown(
         "**Simple meaning:** contango is when next month's gas futures cost more than the front month. "
         "That curve shape can create a headwind for UNG over time as it rolls contracts; it does not predict tomorrow's direction. "
-        "Use Schneider Electric's public Henry Hub contract table below to inspect the curve. This is reference context only and is not used by the forecast models."
+        "Use Kresmion's public natural-gas curve monitor below to inspect the delivery-month settlements. This is reference context only and is not used by the forecast models."
     )
     st.info(
-        "Schneider's page blocks in-app framing, so open it directly. It lists monthly delivery contracts and quote update times. "
+        "Open the curve monitor directly to see the settlement date, delivery-month prices, and front-to-next spread. "
         "Compare the front month with later delivery months: higher later-month prices indicate contango; lower prices indicate backwardation."
     )
     st.link_button(
-        "Open Schneider Henry Hub contract quotes",
-        "https://pricing.ems.schneider-electric.com/cme/ngco/default.aspx",
+        "Open Kresmion natural-gas curve",
+        "https://kresmion.com/tools/futures-curve",
         use_container_width=True,
     )
-    st.caption("The quote delay is not stated on the page. Treat these prices as reference only; they are not copied into the forecast models.")
+    st.caption("Kresmion's public NG curve shows daily settlements, not live quotes. No sign-in or API is needed to view it; the data is not ingested into this desk's forecast models.")
 
     st.subheader("Useful additions for the desk")
     u1, u2, u3, u4 = st.columns(4)
