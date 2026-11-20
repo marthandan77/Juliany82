@@ -83,9 +83,9 @@ def describe_henry_hub_feed(snapshot: HenryHubSpotSnapshot) -> dict[str, Any]:
         "available_at": f"EIA workbook release date: {snapshot.published_date.isoformat()} (date only)",
         "retrieved_at": _utc_iso(snapshot.retrieved_at),
         "rows": snapshot.rows,
-        "role": "Reference only; excluded from forecast features",
+        "role": "Lagged Henry Hub context feature",
         "source_url": snapshot.source_url,
-        "note": "Workbook lacks per-observation publication timestamps; historical point-in-time use is not validated.",
+        "note": "EIA workbook lacks observation-level publication timestamps. Model inputs are lagged one UNG session; historical vintages may contain revisions.",
     }
 
 

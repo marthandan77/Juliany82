@@ -28,6 +28,7 @@ def main() -> None:
     ]
     context = []
     context_status = {}
+    henry_hub_snapshot = None
     feed_specs = (
         (
             "eia_storage",
@@ -61,8 +62,8 @@ def main() -> None:
             context_status[key] = f"UNAVAILABLE: {type(exc).__name__}"
             data_feeds.append(unavailable_feed(name, f"Fetch or validation failed ({type(exc).__name__})."))
     try:
-        henry_hub = fetch_eia_henry_hub_spot()
-        data_feeds.append(describe_henry_hub_feed(henry_hub))
+        henry_hub_snapshot = fetch_eia_henry_hub_spot()
+        data_feeds.append(describe_henry_hub_feed(henry_hub_snapshot))
     except Exception as exc:
         data_feeds.append(unavailable_feed(
             "EIA Henry Hub spot", f"Fetch or validation failed ({type(exc).__name__})."
@@ -82,7 +83,9 @@ def main() -> None:
     # Score target sessions that completed after previous candidate forecasts.
     scored = ledger.score_matured(fetched.frame)
     rows = generate_rolling_forecasts(
-        fetched.frame, context=features_context, ledger=ledger,
+        fetched.frame,
+        henry_hub=henry_hub_snapshot.history if henry_hub_snapshot else None,
+        context=features_context, ledger=ledger,
         model_names=configured_models,
     )
     report = {

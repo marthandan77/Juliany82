@@ -8,7 +8,7 @@ The experimental forecast set is CatBoost plus Bayesian dynamic regression with 
 
 Each horizon forecasts the minimum low and maximum high across the next 1–5 sessions, plus the closing price on the horizon's target session. Scoring uses that same horizon window for realized low/high and the target-session close, so training targets and scorecard outcomes match. Outcomes are recorded once per forecast when the target session's bar is available.
 
-Each newly issued forecast also stores per-feature contributions to its expected-close return: CatBoost SHAP values or Bayesian inclusion probability, effective coefficient, and contribution. These explain which inputs moved a particular model forecast; they do not establish which data source improves accuracy. The dashboard shows all-time and recent scorecard metrics, forecast/actual history, and the largest recent feature contributions.
+Each newly issued forecast also stores per-feature contributions to its expected-close return: CatBoost SHAP values or Bayesian inclusion probability, effective coefficient, and contribution. These explain which inputs moved a particular model forecast; they do not establish which data source improves accuracy. The dashboard shows all-time and recent scorecard metrics, forecast/actual history, and the largest recent feature contributions. The range desk reports historical whole-horizon range coverage only after at least 30 matured forecasts for that model and horizon; this is empirical past coverage, not the probability a new range will hold.
 
 ## Current data
 
@@ -16,12 +16,16 @@ Each newly issued forecast also stores per-feature contributions to its expected
 - **EIA weekly working gas:** EIA API (with a free API key) or the official public workbook when no key is configured.
 - **Storage features:** reported storage, week-over-week change, deviation from a trailing seasonal five-year comparison, and difference from the prior year's corresponding report week.
 - **CFTC positioning:** optional secondary context, retained from the previous project.
-- **Henry Hub spot:** shown as reference data; it is not currently included in model features.
+- **Henry Hub spot:** daily EIA spot history, lagged one UNG session before inclusion as model context. It is a spot price, not the NYMEX futures curve.
+- **Yang–Zhang volatility:** 5/10/20-session OHLC volatility estimates are included as range-width context features; they estimate volatility, not direction.
+- **News:** cached seven-day GDELT UNG/natural-gas headlines are shown for research context only and are not model features.
 - **Pipeline notices:** not connected yet. Public pipeline postings need a reviewed source list and format-specific collectors before they can be used as model inputs.
 
 EIA estimates are subject to revision. A GitHub Actions collector saves normalized snapshots under `data/raw/eia_storage/` on weekdays after the normal report time, starting when this project is enabled. Earlier history from the API/workbook is the latest available vintage, not a complete archive of what was known at every past date. The forecasting run does not yet reconstruct its historical training features from archived vintages. Storage availability timestamps use the normal Thursday 10:30 a.m. Eastern release schedule; holiday changes can differ.
 
 The current project does not yet ingest the complete NYMEX natural-gas futures curve or market expectations for each EIA storage release. A storage surprise feature cannot be built without a point-in-time expectation series. Do not treat a historical expectation collected later as if it were known before the report.
+
+The desk uses Nasdaq for UNG OHLCV and EIA for Henry Hub spot. It does not use Yahoo. Nasdaq's public UNG historical endpoint does not provide a free Henry Hub quote feed; no public free Nasdaq endpoint for US Henry Hub spot/futures is configured. GDELT headlines are cached for 15 minutes and may include irrelevant search matches; open the linked source before acting on a headline.
 
 ## Run locally
 

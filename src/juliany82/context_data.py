@@ -31,6 +31,7 @@ class HenryHubSpotSnapshot:
     rows: int
     source_url: str
     content_sha256: str
+    history: pd.Series
 
 
 def _download_json(url: str) -> dict[str, Any]:
@@ -158,11 +159,11 @@ def fetch_eia_storage_xls() -> pd.DataFrame:
 
 
 def fetch_eia_henry_hub_spot() -> HenryHubSpotSnapshot:
-    """Fetch the latest official daily Henry Hub spot value for dashboard display.
+    """Fetch official daily Henry Hub history and latest spot for model context.
 
     The workbook provides a release date but not historical per-observation
-    publication timestamps. This snapshot is therefore not passed into model
-    features; the UI labels it as reference data only.
+    publication timestamps. The feature builder therefore lags history by one
+    UNG session before using it.
     """
     url = "https://www.eia.gov/dnav/ng/hist_xls/RNGWHHDd.xls"
     request = urllib.request.Request(url, headers={"User-Agent": "UNG-Forecast/0.1"})
@@ -209,6 +210,7 @@ def fetch_eia_henry_hub_spot() -> HenryHubSpotSnapshot:
         rows=len(frame),
         source_url=url,
         content_sha256=hashlib.sha256(raw).hexdigest(),
+        history=frame.set_index("observation_date")["spot_usd_per_mmbtu"].rename("henry_hub"),
     )
 
 

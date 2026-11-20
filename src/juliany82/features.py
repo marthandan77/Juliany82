@@ -19,6 +19,22 @@ def build_features(
     for window in (5, 10, 20):
         out[f"range_{window}"] = (high.rolling(window).max() - low.rolling(window).min()) / close
         out[f"realized_vol_{window}"] = close.pct_change().rolling(window).std() * np.sqrt(252)
+    if "open" in df:
+        op = df["open"].astype(float).clip(lower=1e-12)
+        prev_close = close.shift(1).astype(float).clip(lower=1e-12)
+        overnight = np.log(op / prev_close)
+        open_close = np.log(close / op)
+        log_high_open = np.log(high / op)
+        log_low_open = np.log(low / op)
+        rs = log_high_open * (log_high_open - open_close) + log_low_open * (log_low_open - open_close)
+        for window in (5, 10, 20):
+            k = 0.34 / (1.34 + (window + 1) / (window - 1))
+            yz_variance = (
+                overnight.rolling(window).var(ddof=1)
+                + k * open_close.rolling(window).var(ddof=1)
+                + (1 - k) * rs.rolling(window).mean()
+            )
+            out[f"yang_zhang_vol_{window}"] = np.sqrt(yz_variance.clip(lower=0) * 252)
     for window in (5, 10, 20, 50):
         ema = close.ewm(span=window, adjust=False).mean()
         out[f"price_vs_ema_{window}"] = close / ema - 1.0
@@ -32,7 +48,9 @@ def build_features(
     out["volume_zscore_20"] = (volume - volume.rolling(20).mean()) / volume.rolling(20).std()
     if henry_hub is not None:
         gas = henry_hub.squeeze().rename("henry_hub")
-        gas = gas.reindex(out.index).ffill()
+        # EIA daily history has no point-in-time publication stamp. Use only
+        # the previous available observation to avoid same-session lookahead.
+        gas = gas.reindex(out.index).ffill().shift(1)
         out["henry_hub"] = gas
         out["henry_hub_return_1"] = gas.pct_change()
         out["ung_gas_spread_1"] = out["return_1"] - out["henry_hub_return_1"]

@@ -25,6 +25,7 @@ from juliany82.feed_status import (
 from juliany82.providers import fetch_nasdaq_ung
 from juliany82.rolling import generate_rolling_forecasts
 from juliany82.scorecards import build_scorecards, is_comparable_outcome
+from juliany82.news import fetch_ung_news
 
 
 def make_ledger() -> ForecastLedger:
@@ -37,9 +38,21 @@ def make_ledger() -> ForecastLedger:
         key, url = "", DEFAULT_SUPABASE_URL
     return ForecastLedger(supabase_url=url, supabase_key=key)
 
-st.set_page_config(page_title="UNG Storage & Supply Research", page_icon="NG", layout="wide")
-st.title("UNG Storage & Supply Research")
-st.caption("Daily and five-session experimental forecasts from two complementary models.")
+st.set_page_config(page_title="UNG Range Desk", page_icon="NG", layout="wide")
+
+@st.cache_data(ttl=900, show_spinner=False)
+def cached_news():
+    return fetch_ung_news()
+
+st.markdown("""<style>
+.stApp {background:#0b1118;color:#e6edf3}
+[data-testid="stMetric"] {background:#111b25;border:1px solid #263746;padding:12px;border-radius:5px}
+[data-testid="stMetricLabel"] {color:#9fb3c8}
+div[data-testid="stDataFrame"] {border:1px solid #263746}
+h1,h2,h3 {color:#f4b942}
+</style>""", unsafe_allow_html=True)
+st.title("UNG RANGE DESK")
+st.caption("Daily range research terminal · UNG price, natural-gas context, model scorecards and headlines")
 ledger = make_ledger()
 if ledger.use_supabase:
     st.caption("Forecast history: Supabase connected")
@@ -75,6 +88,7 @@ if st.button("Scan", type="primary", use_container_width=True):
             )]
             context_frames = []
             context_status = {}
+            henry_hub_snapshot = None
             feed_specs = (
                 (
                     "eia_storage", "EIA storage", fetch_eia_storage,
@@ -106,7 +120,8 @@ if st.button("Scan", type="primary", use_container_width=True):
                         name, f"Fetch or validation failed ({type(context_exc).__name__})."
                     ))
             try:
-                data_feeds.append(describe_henry_hub_feed(fetch_eia_henry_hub_spot()))
+                henry_hub_snapshot = fetch_eia_henry_hub_spot()
+                data_feeds.append(describe_henry_hub_feed(henry_hub_snapshot))
             except Exception as henry_hub_exc:
                 data_feeds.append(unavailable_feed(
                     "EIA Henry Hub spot", f"Fetch or validation failed ({type(henry_hub_exc).__name__})."
@@ -124,7 +139,9 @@ if st.button("Scan", type="primary", use_container_width=True):
             ledger = make_ledger()
             scored = ledger.score_matured(fetched.frame)
             generated = generate_rolling_forecasts(
-                fetched.frame, context=combine_context_sources(context_frames),
+                fetched.frame,
+                henry_hub=henry_hub_snapshot.history if henry_hub_snapshot else None,
+                context=combine_context_sources(context_frames),
                 model_names=("catboost", "bayesian_dynamic_selection"), ledger=ledger
             )
             report = {
@@ -158,6 +175,7 @@ if st.button("Scan", type="primary", use_container_width=True):
                 )
             st.session_state["latest_forecasts"] = generated
             st.session_state["latest_bars"] = fetched.frame.tail(120)
+            st.session_state["henry_hub"] = henry_hub_snapshot
             st.session_state["run_quality"] = {
                 "status": report["status"],
                 "provider_status": provider_status,
@@ -172,8 +190,48 @@ if st.button("Scan", type="primary", use_container_width=True):
         except Exception as exc:
             st.error(f"Forecast blocked: {type(exc).__name__}: {exc}")
 
-forecasts = st.session_state.get("latest_forecasts", [])
+forecasts = st.session_state.get("latest_forecasts") or ledger.forecasts()
 quality = st.session_state.get("run_quality")
+bars = st.session_state.get("latest_bars")
+hh_snapshot = st.session_state.get("henry_hub")
+cards = build_scorecards(ledger.outcomes())
+if bars is not None and not bars.empty:
+    last = bars.iloc[-1]
+    m1, m2, m3, m4 = st.columns(4)
+    m1.metric("UNG last close", f"${float(last['close']):.2f}", str(bars.index[-1].date()))
+    if hh_snapshot:
+        m2.metric("Henry Hub spot", f"${hh_snapshot.spot_usd_per_mmbtu:.2f}/MMBtu", f"EIA · {hh_snapshot.observation_date}")
+    else:
+        m2.metric("Henry Hub spot", "Not refreshed", "EIA feed")
+    yz = None
+    if "open" in bars:
+        from juliany82.features import build_features
+        yz_frame = build_features(bars, hh_snapshot.history if hh_snapshot else None)
+        yz = yz_frame.iloc[-1].get("yang_zhang_vol_10")
+    m3.metric("Yang–Zhang vol · 10d", f"{yz:.1%}" if pd.notna(yz) else "Warming up", "Annualized · range context")
+    m4.metric("Forecast rows", str(len(forecasts)) if forecasts else "Awaiting scan", "CatBoost + Bayesian")
+    if forecasts:
+        current_origin = max(row.get("issued_at", "") for row in forecasts)
+        current = [row for row in forecasts if row.get("issued_at") == current_origin]
+        models = sorted({row["model_name"] for row in current})
+        a, b = st.columns([1, 1])
+        selected_model = a.selectbox("Range model", models, key="desk_model")
+        selected_horizon = b.selectbox("Trading horizon", sorted({int(row["horizon"]) for row in current}), format_func=lambda value: f"{value} session(s)", key="desk_horizon")
+        selected = next(row for row in current if row["model_name"] == selected_model and int(row["horizon"]) == selected_horizon)
+        matching = next((row for row in cards if row["model_name"] == selected_model and int(row["horizon"]) == selected_horizon), None)
+        st.subheader("Suggested buy-low / sell-high range")
+        r1, r2, r3, r4 = st.columns(4)
+        r1.metric("Buy zone · range low", f"${float(selected['predicted_low']):.2f}")
+        r2.metric("Sell zone · range high", f"${float(selected['predicted_high']):.2f}")
+        r3.metric("Expected close", f"${float(selected['expected_close']):.2f}")
+        width = float(selected['predicted_high']) - float(selected['predicted_low'])
+        r4.metric("Forecast width", f"${width:.2f}", f"{width / float(selected['reference_close']):.1%} of reference close")
+        if matching and matching.get("matured_forecasts", 0) >= 30:
+            st.info(f"Historical range coverage: {matching['range_coverage']:.0%} across {matching['matured_forecasts']} matured forecasts at this model and horizon. This is a past walk-forward coverage rate, not the probability this specific range will hold.")
+        else:
+            n = matching.get("matured_forecasts", 0) if matching else 0
+            st.info(f"Confidence: preliminary · only {n} matured comparable forecasts; 30 are required before displaying historical coverage.")
+        st.caption("Research levels, not an execution instruction. UNG can gap beyond either level; check spreads, fees and position limits.")
 feed_rows = quality.get("data_feeds") if quality else persisted_report.get("data_feeds", [])
 st.subheader("Market input availability")
 if feed_rows:
@@ -224,7 +282,6 @@ if forecasts:
     for column in ("Forecast low", "Forecast close", "Forecast high"):
         forecast_table[column] = forecast_table[column].round(2)
     st.dataframe(forecast_table, use_container_width=True, hide_index=True)
-cards = build_scorecards(ledger.outcomes())
 st.subheader("Individual model scorecards")
 if cards:
     scorecard_columns = [
@@ -337,6 +394,24 @@ if outcomes:
     comparisons = comparisons[[column for column in comparison_columns if column in comparisons]]
     st.dataframe(comparisons, use_container_width=True, hide_index=True)
     st.caption(f"Showing the latest {len(comparisons)} scored forecasts. All scored vintages remain in the ledger. Errors are forecast minus actual.")
+
+st.subheader("UNG & natural-gas headlines")
+st.caption("Recent links from GDELT · informational context only; headlines are not model inputs or a sentiment signal.")
+if st.button("Refresh headlines"):
+    cached_news.clear()
+try:
+    news = cached_news()
+    if news.empty:
+        st.info("No matching headlines were returned for the past seven days.")
+    else:
+        st.dataframe(
+            news.rename(columns={"seen_utc": "Seen (UTC)", "headline": "Headline", "source": "Source", "language": "Language", "article": "Article"}),
+            use_container_width=True,
+            hide_index=True,
+            column_config={"Article": st.column_config.LinkColumn("Article", display_text="Read")},
+        )
+except Exception as news_exc:
+    st.warning(f"Headline feed unavailable ({type(news_exc).__name__}). Forecasting and scorecards remain available.")
 
 st.subheader("Planned output")
 st.write("CatBoost captures nonlinear feature interactions. Bayesian dynamic selection estimates time-varying coefficients and updates each input's inclusion probability as new observations arrive. Compare both using their separate walk-forward scorecards; neither is assumed superior before out-of-sample evidence.")
