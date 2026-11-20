@@ -24,7 +24,7 @@ from juliany82.feed_status import (
 )
 from juliany82.providers import fetch_nasdaq_ung
 from juliany82.rolling import generate_rolling_forecasts
-from juliany82.scorecards import build_scorecards
+from juliany82.scorecards import build_scorecards, is_comparable_outcome
 
 
 def make_ledger() -> ForecastLedger:
@@ -261,7 +261,7 @@ if cards:
 else:
     st.info("No matured forecasts yet; scorecards will populate as target sessions complete.")
 
-outcomes = ledger.outcomes()
+outcomes = [row for row in ledger.outcomes() if is_comparable_outcome(row)]
 if outcomes:
     st.subheader("Latest forecast vs actual")
     comparisons = pd.DataFrame(outcomes).sort_values("scored_at", ascending=False).head(20)

@@ -6,9 +6,17 @@ from collections import defaultdict
 from typing import Any
 
 
+def is_comparable_outcome(row: dict[str, Any]) -> bool:
+    """Exclude legacy multi-session outcomes scored against only one day's range."""
+    basis = row.get("scoring_basis")
+    return basis == "horizon_window" or (not basis and int(row.get("horizon", 0)) == 1)
+
+
 def build_scorecards(outcomes: list[dict[str, Any]]) -> list[dict[str, Any]]:
     groups: dict[tuple[str, int], list[dict[str, Any]]] = defaultdict(list)
     for row in outcomes:
+        if not is_comparable_outcome(row):
+            continue
         groups[(str(row["model_name"]), int(row["horizon"]))].append(row)
     result = []
     for (model_name, horizon), rows in sorted(groups.items()):

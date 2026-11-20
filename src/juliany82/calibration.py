@@ -4,6 +4,8 @@ from __future__ import annotations
 import math
 from typing import Any
 
+from .scorecards import is_comparable_outcome
+
 
 def calibrate_range(
     forecast: dict[str, Any], outcomes: list[dict[str, Any]], *, minimum: int = 30,
@@ -13,6 +15,7 @@ def calibrate_range(
         row for row in outcomes
         if row.get("model_name") == forecast.get("model_name")
         and int(row.get("horizon", -1)) == int(forecast.get("horizon", -2))
+        and is_comparable_outcome(row)
     ]
     rows = rows[-60:]
     result = dict(forecast)

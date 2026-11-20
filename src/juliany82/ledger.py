@@ -104,16 +104,36 @@ class ForecastLedger:
         return True
 
     def score_matured(self, bars: pd.DataFrame) -> int:
-        """Score each forecast once when its target session exists in completed bars."""
-        existing = {str(row["forecast_id"]) for row in self.outcomes()}
+        """Score forecasts against their horizon range and target-session close."""
+        old_outcomes = self.outcomes()
+        existing = {
+            str(row["forecast_id"]): row for row in old_outcomes
+            if row.get("scoring_basis") == "horizon_window"
+            or (not row.get("scoring_basis") and int(row.get("horizon", 0)) == 1)
+        }
+        bar_dates = pd.DatetimeIndex(pd.to_datetime(bars.index))
+        if bar_dates.tz is not None:
+            bar_dates = bar_dates.tz_localize(None)
+        bar_dates = bar_dates.normalize()
         rows: list[dict[str, Any]] = []
         for forecast in self.forecasts():
             forecast_id = str(forecast["forecast_id"])
             target = pd.Timestamp(forecast["target_session"]).normalize()
-            if forecast_id in existing or target not in bars.index:
+            origin = pd.Timestamp(forecast["origin_session"]).normalize()
+            target_positions = (bar_dates == target).nonzero()[0]
+            if not len(target_positions):
                 continue
-            actual = bars.loc[target]
-            result = score_forecast(forecast, float(actual.low), float(actual.close), float(actual.high))
+            period_positions = ((bar_dates > origin) & (bar_dates <= target)).nonzero()[0]
+            if not len(period_positions):
+                continue
+            target_bar = bars.iloc[int(target_positions[-1])]
+            period_bars = bars.iloc[period_positions]
+            if forecast_id in existing:
+                continue
+            actual_low = float(period_bars.low.min())
+            actual_high = float(period_bars.high.max())
+            actual_close = float(target_bar.close)
+            result = score_forecast(forecast, actual_low, actual_close, actual_high)
             rows.append({
                 "forecast_id": forecast_id,
                 "scored_at": datetime.now(timezone.utc).isoformat(),
@@ -123,9 +143,10 @@ class ForecastLedger:
                 "predicted_low": float(forecast["predicted_low"]),
                 "predicted_close": float(forecast["expected_close"]),
                 "predicted_high": float(forecast["predicted_high"]),
-                "actual_low": float(actual.low),
-                "actual_close": float(actual.close),
-                "actual_high": float(actual.high),
+                "actual_low": actual_low,
+                "actual_close": actual_close,
+                "actual_high": actual_high,
+                "scoring_basis": "horizon_window",
                 **result,
             })
         if rows:
@@ -133,10 +154,16 @@ class ForecastLedger:
                 payload = [{"forecast_id": row["forecast_id"], "record": row} for row in rows]
                 self._request(
                     "outcomes", query=urlencode({"on_conflict": "forecast_id"}), method="POST",
-                    body=payload, prefer="resolution=ignore-duplicates,return=minimal",
+                    body=payload, prefer="resolution=merge-duplicates,return=minimal",
                 )
                 return len(rows)
-            with self.outcomes_path.open("a", encoding="utf-8") as stream:
-                for row in rows:
-                    stream.write(json.dumps(row, sort_keys=True, allow_nan=False) + "\n")
+            merged = {str(row["forecast_id"]): row for row in old_outcomes}
+            merged.update({str(row["forecast_id"]): row for row in rows})
+            temporary = self.outcomes_path.with_suffix(".jsonl.tmp")
+            temporary.write_text(
+                "".join(json.dumps(row, sort_keys=True, allow_nan=False) + "\n"
+                       for row in merged.values()),
+                encoding="utf-8",
+            )
+            temporary.replace(self.outcomes_path)
         return len(rows)

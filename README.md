@@ -6,6 +6,8 @@ Research application for daily UNG price features and rolling one-to-five-sessio
 
 The experimental forecast set is CatBoost plus Bayesian dynamic regression with dynamic variable selection. CatBoost fits nonlinear boosted trees. The Bayesian model uses a sequential spike-and-slab coefficient filter: coefficients can drift over time and feature inclusion probabilities update with each training observation. It is a scalable approximate Bayesian filter, not a full MCMC posterior. Neither model is presumed superior; compare the separate chronological scorecards before relying on either.
 
+Each horizon forecasts the minimum low and maximum high across the next 1–5 sessions, plus the closing price on the horizon's target session. Scoring uses that same horizon window for realized low/high and the target-session close, so training targets and scorecard outcomes match. Outcomes are recorded once per forecast when the target session's bar is available.
+
 ## Current data
 
 - **UNG daily OHLCV:** Nasdaq's public historical endpoint. Yahoo is not used.
