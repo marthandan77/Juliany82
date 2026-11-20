@@ -20,6 +20,7 @@ def build_scorecards(outcomes: list[dict[str, Any]]) -> list[dict[str, Any]]:
         groups[(str(row["model_name"]), int(row["horizon"]))].append(row)
     result = []
     for (model_name, horizon), rows in sorted(groups.items()):
+        rows.sort(key=lambda row: str(row.get("scored_at", "")))
         n = len(rows)
         def metrics(sample: list[dict[str, Any]]) -> dict[str, float]:
             count = len(sample)
@@ -43,6 +44,14 @@ def build_scorecards(outcomes: list[dict[str, Any]]) -> list[dict[str, Any]]:
             "close_coverage": sum(bool(r.get("range_contains_close", False)) for r in rows) / n,
             "recent_20_abs_close_error": recent_20["mean_abs_close_error"],
             "recent_20_range_coverage": recent_20["range_coverage"],
+            "recent_20_abs_low_error": (
+                sum(abs(float(r["low_error"])) for r in rows[-20:]) / len(rows[-20:])
+                if len(rows) >= 20 else None
+            ),
+            "recent_20_abs_high_error": (
+                sum(abs(float(r["high_error"])) for r in rows[-20:]) / len(rows[-20:])
+                if len(rows) >= 20 else None
+            ),
             "recent_60_abs_close_error": recent_60["mean_abs_close_error"],
             "recent_60_range_coverage": recent_60["range_coverage"],
             "status": "INSUFFICIENT_DATA" if n < 30 else "EVALUATED",

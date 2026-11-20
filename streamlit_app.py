@@ -230,7 +230,9 @@ if cards:
     scorecard_columns = [
         "model_name", "horizon", "matured_forecasts", "mean_abs_close_error",
         "mean_abs_low_error", "mean_abs_high_error", "range_coverage",
-        "average_range_width", "status",
+        "average_range_width", "recent_20_abs_close_error",
+        "recent_20_abs_low_error", "recent_20_abs_high_error",
+        "recent_20_range_coverage", "status",
     ]
     st.dataframe(
         [{key: row.get(key) for key in scorecard_columns} for row in cards],
@@ -238,12 +240,7 @@ if cards:
         hide_index=True,
     )
     st.caption("Range coverage = percentage of sessions where the actual low and high stayed inside the forecast range.")
-    st.caption("Close/low/high errors are mean absolute price errors. Lower is better. Narrower ranges are useful only when coverage remains high.")
-    scorecard_frame = pd.DataFrame(cards)
-    st.subheader("Range accuracy at a glance")
-    chart_frame = scorecard_frame.pivot(index="model_name", columns="horizon", values="range_coverage")
-    chart_frame.columns = [f"{int(value)}d" for value in chart_frame.columns]
-    st.bar_chart(chart_frame, y_label="Range coverage (1.0 = 100%)")
+    st.caption("Errors are mean absolute price errors. All-time columns include all matured forecasts; recent columns use the last 20 for that model and horizon. Lower error is better. Narrower ranges are useful only when coverage remains high.")
 else:
     st.info("No matured forecasts yet; scorecards will populate as target sessions complete.")
 
@@ -267,9 +264,70 @@ if forecast_history:
         use_container_width=True,
         hide_index=True,
     )
+    explainable = [row for row in forecast_history if row.get("feature_contributions")]
+    if explainable:
+        st.subheader("Input influence on forecast")
+        explainable.sort(key=lambda row: str(row.get("issued_at", "")), reverse=True)
+        labels = {
+            str(row["forecast_id"]): (
+                f"{row['origin_session']} → {row['target_session']} | "
+                f"{row['model_name']} | {row['horizon']} session(s)"
+            )
+            for row in explainable
+        }
+        selected_id = st.selectbox(
+            "Choose a forecast vintage", list(labels), format_func=lambda value: labels[value]
+        )
+        selected_forecast = next(row for row in explainable if str(row["forecast_id"]) == selected_id)
+        contribution_frame = pd.DataFrame(selected_forecast["feature_contributions"])
+        display_columns = [
+            column for column in (
+                "feature", "feature_value", "contribution", "selection_probability",
+                "effective_coefficient", "method",
+            ) if column in contribution_frame
+        ]
+        st.dataframe(
+            contribution_frame[display_columns],
+            use_container_width=True,
+            hide_index=True,
+        )
+        st.caption("Contributions explain the model's expected-close return forecast. Positive values push the forecast up; negative values push it down. This measures influence on a prediction, not whether the input improved accuracy or caused the move.")
+        st.caption("Accuracy benefit requires a separate chronological feature-removal evaluation. Historical EIA vintages are incomplete, so that comparison is not yet reliable for older periods.")
+        impact_rows = []
+        history_by_id = {str(row["forecast_id"]): row for row in forecast_history}
+        recent_outcomes: dict[tuple[str, int], list[dict]] = {}
+        for outcome in sorted(outcomes, key=lambda row: str(row.get("scored_at", ""))):
+            group = (str(outcome["model_name"]), int(outcome["horizon"]))
+            recent_outcomes.setdefault(group, []).append(outcome)
+        for (model_name, horizon), group_outcomes in recent_outcomes.items():
+            for outcome in group_outcomes[-20:]:
+                forecast_row = history_by_id.get(str(outcome["forecast_id"]), {})
+                for contribution in forecast_row.get("feature_contributions", []):
+                    impact_rows.append({
+                        "model_name": model_name,
+                        "horizon": horizon,
+                        "feature": contribution["feature"],
+                        "contribution": float(contribution["contribution"]),
+                        "selection_probability": contribution.get("selection_probability"),
+                    })
+        if impact_rows:
+            impact = pd.DataFrame(impact_rows)
+            summary = impact.groupby(["model_name", "horizon", "feature"], as_index=False).agg(
+                scored_forecasts=("contribution", "count"),
+                mean_absolute_contribution=("contribution", lambda values: values.abs().mean()),
+                mean_signed_contribution=("contribution", "mean"),
+                mean_selection_probability=("selection_probability", "mean"),
+            )
+            summary = summary.sort_values(
+                ["model_name", "horizon", "mean_absolute_contribution"],
+                ascending=[True, True, False],
+            )
+            top_inputs = summary.groupby(["model_name", "horizon"], sort=False).head(5)
+            st.caption("Largest average absolute contributions among the latest 20 matured forecasts per model and horizon.")
+            st.dataframe(top_inputs, use_container_width=True, hide_index=True)
 if outcomes:
-    st.subheader("Latest forecast vs actual")
-    comparisons = pd.DataFrame(outcomes).sort_values("scored_at", ascending=False).head(20)
+    st.subheader("Forecast vs actual history")
+    comparisons = pd.DataFrame(outcomes).sort_values("scored_at", ascending=False).head(100)
     comparison_columns = [
         "target_session", "model_name", "horizon",
         "predicted_low", "actual_low", "low_error",
@@ -278,7 +336,7 @@ if outcomes:
     ]
     comparisons = comparisons[[column for column in comparison_columns if column in comparisons]]
     st.dataframe(comparisons, use_container_width=True, hide_index=True)
-    st.caption("Forecast errors are predicted price minus actual price. A row is added once when its target session has a completed Nasdaq bar.")
+    st.caption(f"Showing the latest {len(comparisons)} scored forecasts. All scored vintages remain in the ledger. Errors are forecast minus actual.")
 
 st.subheader("Planned output")
 st.write("CatBoost captures nonlinear feature interactions. Bayesian dynamic selection estimates time-varying coefficients and updates each input's inclusion probability as new observations arrive. Compare both using their separate walk-forward scorecards; neither is assumed superior before out-of-sample evidence.")

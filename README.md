@@ -8,6 +8,8 @@ The experimental forecast set is CatBoost plus Bayesian dynamic regression with 
 
 Each horizon forecasts the minimum low and maximum high across the next 1–5 sessions, plus the closing price on the horizon's target session. Scoring uses that same horizon window for realized low/high and the target-session close, so training targets and scorecard outcomes match. Outcomes are recorded once per forecast when the target session's bar is available.
 
+Each newly issued forecast also stores per-feature contributions to its expected-close return: CatBoost SHAP values or Bayesian inclusion probability, effective coefficient, and contribution. These explain which inputs moved a particular model forecast; they do not establish which data source improves accuracy. The dashboard shows all-time and recent scorecard metrics, forecast/actual history, and the largest recent feature contributions.
+
 ## Current data
 
 - **UNG daily OHLCV:** Nasdaq's public historical endpoint. Yahoo is not used.
@@ -64,6 +66,7 @@ For scheduled runs, set `SUPABASE_SERVICE_ROLE_KEY` as a GitHub Actions secret; 
 2. Add a pre-release storage expectation series only if a reliable free historical source is identified and archived point in time.
 3. Evaluate a small set of relevant pipeline EBB notices, storing notice text and posting/effective times before attempting to convert notices into numerical supply-loss estimates.
 4. Compare CatBoost and Bayesian dynamic selection on the same chronological splits, reviewing forecast error, calibration, inclusion stability, and sensitivity to feature availability.
+5. Add point-in-time walk-forward feature-removal comparisons to estimate whether each input improves out-of-sample scorecard results. Historical EIA revisions are not fully reconstructed in training data yet, so do not claim past feature lift from revised historical inputs.
 
 ## Models
 

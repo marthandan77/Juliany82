@@ -56,6 +56,7 @@ def generate_rolling_forecasts(
                 "predicted_high": forecast.predicted_high,
                 "probability_up": forecast.probability_up,
                 "uncertainty": forecast.uncertainty,
+                "feature_contributions": forecast.feature_contributions,
                 "status": "PROVISIONAL",
             }
             output.append(record)
