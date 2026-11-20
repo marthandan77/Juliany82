@@ -223,32 +223,40 @@ hh_snapshot = st.session_state.get("henry_hub")
 cards = build_scorecards(ledger.outcomes())
 if bars is not None and not bars.empty:
     last = bars.iloc[-1]
-    m1, m2, m3, m4 = st.columns(4)
+    m1, m2, m3 = st.columns(3)
     m1.metric("UNG last close", f"${float(last['close']):.2f}", str(bars.index[-1].date()))
-    if hh_snapshot:
-        m2.metric("Henry Hub spot", f"${hh_snapshot.spot_usd_per_mmbtu:.2f}/MMBtu", f"EIA · {hh_snapshot.observation_date}")
-    else:
-        m2.metric("Henry Hub spot", "Not refreshed", "EIA feed")
     yz = None
+    yz5 = yz20 = None
     if "open" in bars:
         from juliany82.features import build_features
         yz_frame = build_features(bars, hh_snapshot.history if hh_snapshot else None)
         yz = yz_frame.iloc[-1].get("yang_zhang_vol_10")
+        yz5 = yz_frame.iloc[-1].get("yang_zhang_vol_5")
+        yz20 = yz_frame.iloc[-1].get("yang_zhang_vol_20")
     if pd.notna(yz):
         daily_move_pct = float(yz) / (252 ** 0.5)
         daily_move_dollars = float(last["close"]) * daily_move_pct
-        m3.metric(
+        m2.metric(
             "Recent volatility · 10 days",
             f"{float(yz):.1%} per year",
             f"About ±${daily_move_dollars:.2f} daily move; either way",
             help="Yang–Zhang estimates how much UNG has been moving, including overnight gaps. The percentage is annualized. It describes move size, not whether price will rise or fall.",
         )
     else:
-        m3.metric(
+        m2.metric(
             "Recent volatility · 10 days", "Warming up", "Need more daily price history",
             help="Yang–Zhang needs open, high, low and close prices over the recent sessions.",
         )
-    m4.metric("Forecast rows", str(len(forecasts)) if forecasts else "Awaiting scan", "CatBoost + Bayesian")
+    recent = bars.tail(20)
+    if len(recent) >= 2 and float(recent["high"].max()) > float(recent["low"].min()):
+        range_low = float(recent["low"].min())
+        range_high = float(recent["high"].max())
+        range_position = (float(last["close"]) - range_low) / (range_high - range_low)
+        range_position = min(1.0, max(0.0, range_position))
+        position_text = "Near the lower end" if range_position < 0.33 else "Near the upper end" if range_position > 0.67 else "Near the middle"
+        m3.metric("Price in 20-day range", f"{range_position:.0%}", position_text)
+    else:
+        m3.metric("Price in 20-day range", "Warming up", "Need 2+ sessions")
     if forecasts:
         current_origin = max(row.get("issued_at", "") for row in forecasts)
         current = [row for row in forecasts if row.get("issued_at") == current_origin]
@@ -271,6 +279,39 @@ if bars is not None and not bars.empty:
             n = matching.get("matured_forecasts", 0) if matching else 0
             st.info(f"Confidence: preliminary · only {n} matured comparable forecasts; 30 are required before displaying historical coverage.")
         st.caption("Research levels, not an execution instruction. UNG can gap beyond either level; check spreads, fees and position limits.")
+
+    st.subheader("Contango & futures-curve effect")
+    st.warning(
+        "Current futures curve: not connected. This desk has Henry Hub spot data, but spot is not the same as NYMEX futures by delivery month. "
+        "EIA's historical futures series currently stops at April 5, 2024, so it cannot supply today's contango reading."
+    )
+    curve1, curve2, curve3 = st.columns(3)
+    curve1.metric("Front-month future", "No current quote")
+    curve2.metric("Next-month future", "No current quote")
+    curve3.metric("Contango spread", "Not calculated")
+    st.markdown(
+        "**Simple meaning:** contango is when next month's gas futures cost more than the front month. "
+        "UNG rolls futures contracts, so contango can create a headwind over time; it does not tell us whether UNG will rise or fall tomorrow. "
+        "[Open CME's delayed Henry Hub quotes](https://www.cmegroup.com/markets/energy/natural-gas/natural-gas.quotes.html)."
+    )
+    st.caption("Once a current futures feed is connected, spread % = (next-month price − front-month price) ÷ front-month price × 100. Positive means contango; negative means backwardation. CME quotes are delayed at least 10 minutes and are shown as a reference feed.")
+
+    st.subheader("Useful additions for the desk")
+    with st.expander("Range confidence — how often has this model's range held?"):
+        st.write("The scorecard compares old forecast ranges with the actual low and high over the same number of sessions. It reports past coverage only after 30 forecasts mature. That percentage describes historical results; it is not the chance this new range will hold.")
+    with st.expander("Price location — is UNG near its recent low or high?"):
+        st.write(f"The card above locates today's close between the lowest low and highest high of the last 20 sessions ({f'${range_low:.2f}–${range_high:.2f}' if 'range_low' in locals() else 'range not available'}). Near the bottom can help frame a buy zone; it does not guarantee a bounce.")
+    with st.expander("Volatility trend — are price swings growing or shrinking?"):
+        if pd.notna(yz5) and pd.notna(yz20) and float(yz20) > 0:
+            vol_ratio = float(yz5) / float(yz20)
+            vol_description = "Recent swings are larger than the 20-session pace" if vol_ratio > 1.05 else "Recent swings are smaller than the 20-session pace" if vol_ratio < 0.95 else "Recent swings are close to the 20-session pace"
+            st.write(f"The recent 5-session Yang–Zhang volatility is {vol_ratio:.2f}× the 20-session reading. {vol_description}. This helps describe possible range width, not direction.")
+        else:
+            st.write("This reading needs enough open, high, low and close history to calculate both volatility windows.")
+    with st.expander("Next useful model — forecast range width separately"):
+        st.write("A HAR-style volatility model can combine short-, medium- and longer-term volatility to estimate whether upcoming price ranges may widen or narrow. It forecasts move size, not direction. Yang–Zhang inputs are available; a separate walk-forward-tested HAR forecast is not yet on this page.")
+    with st.expander("Which level gets touched first?"):
+        st.write("This would estimate whether the buy level or sell level is reached first. Daily bars cannot tell the order if both levels trade during the same session. Intraday price history is needed to train and score this fairly.")
 feed_rows = quality.get("data_feeds") if quality else persisted_report.get("data_feeds", [])
 st.subheader("Market input availability")
 if feed_rows:
