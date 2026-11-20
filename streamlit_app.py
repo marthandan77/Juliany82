@@ -224,20 +224,6 @@ if forecasts:
     for column in ("Forecast low", "Forecast close", "Forecast high"):
         forecast_table[column] = forecast_table[column].round(2)
     st.dataframe(forecast_table, use_container_width=True, hide_index=True)
-    for model_name, title in (("catboost", "CatBoost"),
-                              ("bayesian_dynamic_selection", "Bayesian dynamic selection")):
-        chart_rows = {
-            row["target_session"]: {
-                "predicted_low": row["predicted_low"],
-                "expected_close": row["expected_close"],
-                "predicted_high": row["predicted_high"],
-            }
-            for row in forecasts if row["model_name"] == model_name
-        }
-        if chart_rows:
-            st.subheader(f"Forecast range graphic — {title}")
-            st.line_chart(chart_rows, use_container_width=True)
-            st.caption("The area between Forecast low and Forecast high is the expected price range; Forecast close is the middle estimate.")
 cards = build_scorecards(ledger.outcomes())
 st.subheader("Individual model scorecards")
 if cards:
@@ -262,6 +248,25 @@ else:
     st.info("No matured forecasts yet; scorecards will populate as target sessions complete.")
 
 outcomes = [row for row in ledger.outcomes() if is_comparable_outcome(row)]
+forecast_history = ledger.forecasts()
+if forecast_history:
+    st.subheader("Forecast history")
+    scored_ids = {str(row["forecast_id"]) for row in outcomes}
+    history = pd.DataFrame(forecast_history)
+    history["result_status"] = history["forecast_id"].astype(str).map(
+        lambda forecast_id: "SCORED" if forecast_id in scored_ids else "AWAITING TARGET BAR"
+    )
+    history = history.sort_values("issued_at", ascending=False)
+    history_columns = [
+        "issued_at", "origin_session", "target_session", "model_name", "horizon",
+        "predicted_low", "expected_close", "predicted_high", "result_status",
+    ]
+    st.caption(f"All forecast vintages are retained in the ledger ({len(history)} total). Showing the latest 100 here.")
+    st.dataframe(
+        history[[column for column in history_columns if column in history]].head(100),
+        use_container_width=True,
+        hide_index=True,
+    )
 if outcomes:
     st.subheader("Latest forecast vs actual")
     comparisons = pd.DataFrame(outcomes).sort_values("scored_at", ascending=False).head(20)
